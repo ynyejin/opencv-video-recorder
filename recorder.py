@@ -2,6 +2,7 @@ import cv2
 import datetime
 import time
 import numpy as np
+import os
 
 WINDOW_NAME = "Video Recorder"
 
@@ -13,7 +14,7 @@ eye_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_eye.xml"
 )
 
-# PEACE 스티커 PNG 
+# PEACE 스티커 PNG
 peace_sticker = cv2.imread("stickers/peace.png", cv2.IMREAD_UNCHANGED)
 
 if peace_sticker is None:
@@ -107,7 +108,6 @@ def overlay_png(background, overlay, x, y):
     alpha = overlay_crop[:, :, 3:] / 255.0
 
     background_region = background[y1:y2, x1:x2]
-
     blended = background_region * (1 - alpha) + overlay_rgb * alpha
     background[y1:y2, x1:x2] = blended.astype(np.uint8)
 
@@ -128,6 +128,7 @@ def apply_peace_filter(frame):
     if len(faces) == 0:
         return result
 
+    # 가장 큰 얼굴 하나만 사용
     x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
     face_roi_gray = gray[y:y+h, x:x+w]
 
@@ -139,6 +140,7 @@ def apply_peace_filter(frame):
     )
 
     if len(eyes) >= 2:
+        # 화면상 더 오른쪽 눈 선택
         eyes_sorted = sorted(eyes, key=lambda e: e[0], reverse=True)
         ex, ey, ew, eh = eyes_sorted[0]
 
@@ -149,6 +151,7 @@ def apply_peace_filter(frame):
         sticker_x = eye_center_x + int(ew * 0.8)
         sticker_y = eye_center_y - sticker_size // 2
     else:
+        # 눈 검출이 안 되면 얼굴 기준 대략 위치
         sticker_size = max(40, w // 4)
         sticker_x = x + int(w * 0.78)
         sticker_y = y + int(h * 0.28)
@@ -242,10 +245,17 @@ def on_mouse(event, x, y, flags, param):
 
 
 def create_new_writer(frame_width, frame_height, fps):
+    os.makedirs("recordings", exist_ok=True)
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"recordings/record_{timestamp}.mp4"
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter(filename, fourcc, fps, (frame_width, frame_height))
+
+    if not writer.isOpened():
+        print("영상 파일을 생성할 수 없습니다.")
+        return None, None
+
     return writer, filename
 
 
@@ -274,6 +284,7 @@ while True:
 
     filtered_frame = apply_filter(frame, selected_filter)
 
+    # 필터명 표시
     cv2.putText(
         filtered_frame,
         f"Filter: {selected_filter.upper()}",
@@ -284,6 +295,7 @@ while True:
         2
     )
 
+    # 강도 표시
     if selected_filter in ("bulge", "pinch"):
         cv2.putText(
             filtered_frame,
@@ -295,7 +307,7 @@ while True:
             2
         )
 
-    # Record 모드
+    # Record 모드일 때만 표시/저장
     if is_recording:
         current_elapsed = int(time.time() - record_start_time)
 
@@ -337,9 +349,10 @@ while True:
         if not is_recording:
             # Preview -> Record
             out, current_record_filename = create_new_writer(frame_width, frame_height, fps)
-            is_recording = True
-            record_start_time = time.time()
-            print("Recording started:", current_record_filename)
+            if out is not None:
+                is_recording = True
+                record_start_time = time.time()
+                print("Recording started:", current_record_filename)
         else:
             # Record -> Preview
             is_recording = False
